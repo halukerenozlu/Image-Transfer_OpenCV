@@ -37,6 +37,8 @@ def open_pipeline():
     return cap
 
 
+# ...existing code...
+
 def dinle_ve_kaydet():
     """
     Sürekli döngü: pipeline açmaya çalış, ilk kare geldiğinde pencere ve VideoWriter aç,
@@ -128,4 +130,3 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n[alici.py] Dinleme sonlandırıldı. Çıkılıyor.")
         sys.exit(0)
-
