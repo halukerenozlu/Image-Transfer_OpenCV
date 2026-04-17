@@ -4,6 +4,7 @@ LiveCast-UDP is a Python + OpenCV + GStreamer project for **real-time video stre
 
 - `sender.py` captures frames from a local camera, encodes them as H.264, and sends them over RTP/UDP.
 - `receiver.py` listens on UDP port `6000`, decodes the stream, shows live preview, and records to `.mkv`.
+- `sender.py` automatically launches `receiver.py` as a subprocess before continuous live streaming.
 
 ## Architecture
 
