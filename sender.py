@@ -1,4 +1,4 @@
-# verici.py
+# sender.py
 # flake8: noqa
 import cv2
 import time
@@ -6,19 +6,19 @@ import os
 import subprocess
 import signal
 
-# Ayarlar
+# Settings
 CAPTURE_DEVICE = 0
 UDP_HOST = '127.0.0.1'
 UDP_PORT = 6000
 
-# alici.py'nin yolu (aynı klasördeyse "alici.py")
-ALICI_SCRIPT = "alici.py"
+# receiver.py path (if in the same folder, "receiver.py")
+RECEIVER_SCRIPT = "receiver.py"
 
 
 def open_udp_writer(width, height, fps=20):
     """
-    GStreamer pipeline ile H.264 encode edip UDP'ye gönderir.
-    Yerel yazma (VideoWriter) kesinlikle YOK.
+    Encodes frames with H.264 through GStreamer and sends them over UDP.
+    No local file write happens in this writer.
     """
     gst_pipeline = (
         f'appsrc ! videoconvert ! '
@@ -35,7 +35,7 @@ def open_udp_writer(width, height, fps=20):
         True
     )
     if not writer.isOpened():
-        print("[VERICI] Uyarı: x264enc açılmadı, avenc_h264 ile denenecek...")
+        print("[SENDER] Warning: x264enc is unavailable, trying avenc_h264...")
         gst_pipeline_fallback = (
             f'appsrc ! videoconvert ! '
             f'avenc_h264 ! '
@@ -52,27 +52,27 @@ def open_udp_writer(width, height, fps=20):
         )
         if not writer.isOpened():
             print(
-                "[VERICI] Hata: Hem x264enc hem avenc_h264 açılamadı. Canlı gönderim aktarılamayacak.")
+                "[SENDER] Error: Neither x264enc nor avenc_h264 could be opened. Live transmission cannot continue.")
 
     return writer
 
 
-def start_alici_process():
-    cmd = ["python3", ALICI_SCRIPT]
-    # Alıcıyı arkada başlatıyoruz, kendi pipeline'ı direkt UDP 6000’i dinleyecek
+def start_receiver_process():
+    cmd = ["python3", RECEIVER_SCRIPT]
+    # Start receiver in background; it listens directly on UDP 6000.
     return subprocess.Popen(cmd, preexec_fn=os.setsid)
 
 
-def verici():
+def sender():
     cap = cv2.VideoCapture(CAPTURE_DEVICE)
     if not cap.isOpened():
-        print("❌ VERICI: Kamera açılamadı.")
+        print("❌ SENDER: Camera could not be opened.")
         return
 
-    # İlk kare ile çözünürlüğü öğrenelim
+    # Read the first frame to detect frame size.
     ret, frame = cap.read()
     if not ret:
-        print("❌ VERICI: İlk kare alınamadı.")
+        print("❌ SENDER: Initial frame could not be read.")
         cap.release()
         return
 
@@ -80,12 +80,12 @@ def verici():
     udp_writer = open_udp_writer(width, height, fps=20)
     if udp_writer.isOpened():
         print(
-            f"[VERICI] UDP pipeline açıldı. Alici’ye {UDP_PORT} portundan paket yollanacak.")
+            f"[SENDER] UDP pipeline is ready. Packets will be sent to receiver on port {UDP_PORT}.")
     else:
-        print("[VERICI] Uyarı: UDP writer açılamadı, canlı yayın gitmeyecek.")
+        print("[SENDER] Warning: UDP writer could not be opened, live stream will not be sent.")
 
-    # Kısa test (10 kare) yollayarak alıcının hazır olmasını sağlıyoruz
-    print("[VERICI] Test yayını (10 kare) yollanıyor, alici’yi bekliyoruz...")
+    # Send a short warmup stream (10 frames) so receiver can initialize.
+    print("[SENDER] Sending warmup stream (10 frames), waiting for receiver...")
     for _ in range(10):
         ret, frame = cap.read()
         if not ret:
@@ -94,42 +94,41 @@ def verici():
             udp_writer.write(frame)
         time.sleep(0.05)
 
-    # Alici process’ini başlat
-    print("[VERICI] Alici süreci başlatılıyor...")
-    alici_proc = start_alici_process()
-    time.sleep(1.0)  # Alici’nın pipeline kurması için bekleme
+    # Start receiver process.
+    print("[SENDER] Starting receiver process...")
+    receiver_proc = start_receiver_process()
+    time.sleep(1.0)  # Wait for receiver pipeline startup.
 
-    print("[VERICI] Canlı yayın başladı. 'q' ile sonlandırabilirsiniz.")
+    print("[SENDER] Live stream started. Press 'q' to stop.")
     while True:
         ret, frame = cap.read()
         if not ret:
-            print("❌ VERICI: Kare alınamıyor, çıkılıyor.")
+            print("❌ SENDER: Frame capture failed, exiting.")
             break
 
-        cv2.imshow("Verici - Live Preview", frame)
+        cv2.imshow("Sender - Live Preview", frame)
         if udp_writer.isOpened():
             udp_writer.write(frame)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
-            print("[VERICI] 'q' tuşuna basıldı. Yayın durduruluyor...")
+            print("[SENDER] 'q' pressed. Stopping stream...")
             break
 
-    # Temizlik
+    # Cleanup
     cap.release()
     if udp_writer.isOpened():
         udp_writer.release()
     cv2.destroyAllWindows()
 
-    # Alici sürecini kapat
+    # Stop receiver process.
     try:
-        os.killpg(os.getpgid(alici_proc.pid), signal.SIGTERM)
-        print("[VERICI] Alici süreci sonlandırıldı.")
+        os.killpg(os.getpgid(receiver_proc.pid), signal.SIGTERM)
+        print("[SENDER] Receiver process terminated.")
     except Exception as e:
-        print(f"[VERICI] Alici kapanırken hata: {e}")
+        print(f"[SENDER] Error while stopping receiver: {e}")
 
-    print("[VERICI] İşlem tamamlandı.")
+    print("[SENDER] Process completed.")
 
 
 if __name__ == "__main__":
-    verici()
-
+    sender()
